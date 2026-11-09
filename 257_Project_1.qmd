@@ -1,0 +1,249 @@
+---
+title: "When Does MANOVA Add Information? An NFL Combine Application and Simulation"
+author: "Malhar Patil"
+thanks: "Project repository available at: [https://github.com/patilmalhar17/MATH257-Project-1.git](https://github.com/patilmalhar17/MATH257-Project-1)."
+date: 11/08/2026
+date-format: long
+format: pdf
+editor: visual
+bibliography: references.bib
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+# Introduction
+
+The National Football League (NFL) Scouting Combine is an important event for football scouts and dedicated fans. The combine requires young prospects to display their raw athletic talent for scouts of NFL teams to evaluate. The Combine includes several events that measure different aspects of athletic ability. These different measurements include 40-yard dash time, vertical jump, broad jump and three-cone drill time. They are measurements of a player's speed, explosiveness and agility. Since all these measurements are connected with a player's athletic ability, they are likely to be correlated with one another. Therefore, evaluating these measurements together may provide a better description of a player than examining each measurement independently.
+
+A common approach is to conduct separate analyses for each measurement. However, performing multiple statistical tests increases the likelihood of a false positive, a Type I error. Separate analyses look at each combine measurement one at a time. Multivariate analysis of variance (MANOVA) examines several measurements at the same time and accounts for their correlations.
+
+The research question for this analysis is: How do conclusions from MANOVA and separate ANOVAs compare when analyzing multiple correlated outcomes?  
+
+This study examines whether drafted and undrafted wide receivers who participated in the NFL Combine differ in their combined athletic measurements. Response variables that are used are 40-yard dash time, vertical jump, broad jump and three-cone drill time. I compared a MANOVA with separate ANOVAs for each measurement. I then used simulated data to demonstrate a situation where MANOVA and the separate ANOVAs lead to different conclusions.
+
+The analysis found statistically significant differences between drafted and undrafted wide receivers across all four Combine measurements. The MANOVA and the separate ANOVAs led to the same conclusion. However, because the separate ANOVAs were also significant after the Bonferroni correction, the dataset did not show that MANOVA detected a difference that the separate ANOVAs missed. The simulated data demonstrated that MANOVA can detect an overall difference when the individual differences are not significant after a Bonferroni correction.
+
+# Data
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+
+library(tidyverse)
+library(knitr)
+
+nfl_combine <- read_csv("nfl_combine.csv")
+
+combine_wrs <- nfl_combine |> filter(position == "WR") |> mutate(draft_status = if_else(is.na(Round), "Undrafted", "Drafted"))  |> select(position, Round, draft_status, forty, vertical, broad_jump, three_cone)
+
+combine_wrs_complete <- combine_wrs |> drop_na(draft_status, forty, vertical, broad_jump, three_cone)
+```
+
+All analyses were conducted in R [@R]. The data used in this study came from the NFL Draft Combine and contain athletic measurements for participating players. This data was downloaded from the SCORE Sports Data Repository [@combine_data]. The dataset contains measurements from `r nrow(nfl_combine)` players between 2004 and 2023. Each row represents one player and includes a player's position, draft round and performance on multiple Combine events. The data was compiled from the Sports Reference StatHead Football page. 
+
+This analysis solely focuses on players who play the wide receiver position due to the vastly differing physical profiles of each position. There are a total of `r nrow(combine_wrs)` wide receivers in the dataset. This analysis compares wide receivers who were drafted with wide receivers that were not drafted. Players with a recorded draft round in the dataset were classified as drafted while players with a missing value for `Round` were classified as undrafted. For this analysis, a missing value for draft round was interpreted that the player was not selected in the draft, although it could also represent incomplete information.
+
+The response variables are 40-yard dash time, vertical jump, broad jump and three-cone drill time. The 40-yard dash and three-cone drill time tend to measure speed and agility with lower times representing faster players. The vertical jump and broad jump measurements represent athletic explosiveness with higher values representing more athletically explosive players. The final analysis included only players with non-missing values for all four measurements.
+
+To conduct the analysis of MANOVA with separate ANOVAs, I removed entries that had missing values in each of these combine measurements. The final cleaned dataset contained `r nrow(combine_wrs_complete)` wide receivers. This included `r sum(combine_wrs_complete$draft_status == "Drafted")` drafted players and `r sum(combine_wrs_complete$draft_status == "Undrafted")` undrafted players. 
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+descriptive_stats <- combine_wrs_complete |> group_by(draft_status) |> summarise(n = n(), mean_forty = mean(forty), mean_vert = mean(vertical), mean_bj = mean(broad_jump), mean_three = mean(three_cone)) |> rename(`Draft status` = draft_status, `Number of players` = n, `Avg 40-yard dash` = mean_forty, `Avg vertical jump` = mean_vert, `Avg broad jump` = mean_bj, `Avg three-cone` = mean_three)
+
+knitr::kable(descriptive_stats, caption = "Descriptive statistics for NFL Combine wide receivers")
+
+```
+Table 1 summarizes the number of players and the average value for each combine measurement for drafted and undrafted wide receivers. Drafted players had lower average times for the 40-yard dash and three-cone drill and higher average values for the vertical and broad jumps.
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| label: tbl-correlations
+
+cor_table <- combine_wrs_complete |> select(forty, vertical, broad_jump, three_cone) |> cor() |> round(2) |> as.data.frame() |> tibble::rownames_to_column("Measurement")
+
+cor_table$Measurement <- recode(
+  cor_table$Measurement,
+  forty = "40-yard dash",
+  vertical = "Vertical jump",
+  broad_jump = "Broad jump",
+  three_cone = "3-cone drill")
+
+names(cor_table) <- c(
+  "Measurement",
+  "40-yard dash",
+  "Vertical jump",
+  "Broad jump",
+  "3-cone drill"
+)
+
+knitr::kable(cor_table, caption = "Correlations among the four NFL Combine measurements for wide receivers. Values close to 1 or -1 indicate stronger linear relationships.")
+```
+
+The Combine measurements were related to varying degrees. The strongest correlation was between vertical jump and broad jump with a correlation of approximately $0.59$ which means that players who had a higher vertical jump generally had a longer broad jump. The 40-yard dash had negative correlations with the vertical jump and broad jump which indicate that faster players tended to have greater jumping ability. The other relationships were relatively weak. 
+
+# Methods
+
+The first analysis used four separate one-way ANOVAs. Each ANOVA tested whether drafted and undrafted players significantly differed on each combine measurement individually. For measurement $j$, the model can be represented as:
+
+$$ Y_{ij} = \beta_{0j} + \beta_{1j}D_i + \varepsilon_{ij}$$
+
+where $Y_{ij}$ represents the value of measurement $j$ for player $i$, $\beta_{0j}$ is the average measurement for undrafted players, $\beta_{1j}$ represents the difference between drafted and undrafted players, $D_i$ represents whether a player was drafted or undrafted and $\varepsilon_{ij}$ is the error term. $D_i = 0$ represents an undrafted player while $D_i = 1$ represents drafted players. The separate ANOVA tests check whether drafted and undrafted players differ on each measurement individually.
+
+The four measurements were also analyzed jointly using MANOVA. The response variable for player $i$ is defined as: 
+
+$$  \mathbf{Y}_i = \begin{pmatrix}
+\text{forty}_i \\
+\text{vertical}_i \\
+\text{broad jump}_i \\
+\text{three-cone}_i
+\end{pmatrix}$$
+
+The MANOVA model is:
+
+$$ \mathbf{Y}_i = \boldsymbol{\beta}_0 + \boldsymbol{\beta}_1D_i + \boldsymbol{\varepsilon}_i $$
+
+Here, $\boldsymbol{\beta}_0$ is the vector of mean measurements for undrafted players and $\boldsymbol{\beta}_1$ is the vector of differences between drafted and undrafted players among the four measurements.
+
+The null hypothesis is:
+
+$$ H_0: \boldsymbol{\beta}_1 = \mathbf{0} $$
+
+which means that the two groups have the same mean vector across the four measurements. The alternative hypothesis is:
+
+$$ H_A: \boldsymbol{\beta}_1 \neq \mathbf{0} $$
+which means that undrafted and drafted players differ in their overall combined athletic profiles of Combine measurements. Pillai's trace was used as the test statistic of the MANOVA model.
+
+The four ANOVA p-values were adjusted using a Bonferroni correction. Because of the four separate tests, the correction uses a significance level of $0.05/4 = 0.0125$ for each ANOVA. This reduces the chance of getting a false positive from conducting four separate tests. The MANOVA did not need a Bonferroni correction because it provided only one p-value.
+
+I expected drafted players to perform better across the four measurements because Combine performance may be related to whether a player gets drafted or not. I also expected the response variables to be correlated because they measure related aspects of athletic ability. MANOVA provides a single overall test of athletic profiles for each group while the separate ANOVAs identify which individual measurements differed. 
+
+Assumptions for this analysis include the assumption that the observations are independent. However, it is not assumed that the four measurements from the same player are independent because they may be correlated. The analysis also assumes that the response variables are approximately normally distributed within each group and that the groups have similar covariance matrices. 
+
+To demonstrate that MANOVA and separate ANOVAs can produce different conclusions, a simulation was conducted using four correlated response variables. The simulated data included 200 observations in each of the two groups. The data were generated using the `mvrnorm()` function from the MASS package [@Book]. The response variables had correlations of $0.5$. The simulated group differences were small but coordinated across the four responses. 
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+Sigma <- matrix(0.5, nrow = 4, ncol = 4)
+diag(Sigma) <- 1
+
+simulate_data <- function(n_per_g, drafted_means) {
+  undrafted <- MASS::mvrnorm(n = n_per_g, mu = c(0, 0, 0, 0), Sigma = Sigma)
+  
+  drafted <- MASS::mvrnorm(n = n_per_g, mu = drafted_means, Sigma = Sigma)
+  
+  undrafted_data <- as.data.frame(undrafted) |> mutate(group = "Undrafted")
+  
+  drafted_data <- as.data.frame(drafted) |> mutate(group = "Drafted")
+  
+  bind_rows(drafted_data, undrafted_data) |>rename(outcome_1 = V1, outcome_2 = V2, outcome_3 = V3, outcome_4 = V4) |>
+    mutate(group = factor(group, levels = c("Undrafted", "Drafted")))
+}
+
+compare_methods <- function(data) {
+  manova_fit <- manova(cbind(outcome_1, outcome_2, outcome_3, outcome_4) ~ group, data = data)
+  
+  manova_result <- summary(manova_fit, test = "Pillai")$stats[1, ]
+  
+  anova_pvalues <- c(outcome_1 = summary(aov(outcome_1 ~ group, data = data))[[1]][["Pr(>F)"]][1], outcome_2 = summary(aov(outcome_2 ~ group, data = data))[[1]][["Pr(>F)"]][1], outcome_3 = summary(aov(outcome_3 ~ group, data = data))[[1]][["Pr(>F)"]][1], outcome_4 = summary(aov(outcome_4 ~ group, data = data))[[1]][["Pr(>F)"]][1])
+  
+  bonferroni_pvalues <- p.adjust(anova_pvalues, method = "bonferroni")
+  
+  tibble(manova_p_value = manova_result[["Pr(>F)"]], outcome_1_p = bonferroni_pvalues["outcome_1"], outcome_2_p = bonferroni_pvalues["outcome_2"], outcome_3_p = bonferroni_pvalues["outcome_3"], outcome_4_p = bonferroni_pvalues["outcome_4"])
+}
+```
+
+# Results
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+manova_model <- manova(cbind(forty, vertical, broad_jump, three_cone) ~ draft_status, data = combine_wrs_complete)
+manova_summary <- summary(manova_model, test = "Pillai")
+
+test_stat <- manova_summary$stats[1, "Pillai"]
+manova_p <- manova_summary$stats[1, "Pr(>F)"]
+
+anova_pvalues <- c(forty = summary(aov(forty ~ draft_status,data = combine_wrs_complete))[[1]][["Pr(>F)"]][1],
+  vertical = summary(aov(vertical ~ draft_status, data = combine_wrs_complete))[[1]][["Pr(>F)"]][1],
+  broad_jump = summary(aov(broad_jump ~ draft_status, data = combine_wrs_complete))[[1]][["Pr(>F)"]][1],
+  three_cone = summary(aov(three_cone ~ draft_status, data = combine_wrs_complete))[[1]][["Pr(>F)"]][1])
+
+bonferroni_p <- p.adjust(anova_pvalues, method = "bonferroni")
+
+```
+
+The MANOVA was used to test whether drafted and undrafted wide receivers differed in their combine measurements. Using Pillai's trace, the MANOVA produced a value of `r round(test_stat, 3)` and a p-value of `r format.pval(manova_p, digits = 3, eps = 0.001)`. Since the p-value was $< 0.05$, there was statistically significant evidence that drafted and undrafted wide receivers differed across the four Combine measurements combined. 
+
+The four separate ANOVAs examined whether drafted and undrafted wide receivers differed in each measurement separately. The p-value for the 40-yard dash was `r format.pval(anova_pvalues["forty"], digits = 3, eps = 0.001)`, the p-value for vertical jump was `r format.pval(anova_pvalues["vertical"], digits = 3, eps = 0.001)`, the p-value for the broad jump was `r format.pval(anova_pvalues["broad_jump"], digits = 3, eps = 0.001)` and the p-value for the three-cone drill was `r format.pval(anova_pvalues["three_cone"], digits = 3, eps = 0.001)`. After applying a Bonferroni correction, all four measurements remained statistically significant. This shows that there was a significant difference between undrafted and drafted wide receivers for the 40-yard dash, vertical jump, broad jump and three-cone drill after accounting for the four separate tests. The MANOVA did not identify a difference that was missed in the individual ANOVAs.
+
+```{r}
+#| label: fig-boxplots
+#| fig-cap: "Boxplots comparing NFL Combine measurements between drafted and undrafted wide receivers. Lower values indicate better performance for 40-yard dash and three-cone drill, while higher values indicate better performance for vertical and broad jumps."
+#| echo: false
+
+plot_data <- combine_wrs_complete |> select(draft_status, forty, vertical, broad_jump, three_cone) |>
+  pivot_longer(cols = c(forty, vertical, broad_jump, three_cone), names_to = "measurement", values_to = "value") |>
+  mutate(
+    measurement = recode(
+      measurement,
+      forty = "40-yard dash",
+      vertical = "Vertical jump",
+      broad_jump = "Broad jump",
+      three_cone = "3-cone drill"
+    )
+  )
+
+ggplot(plot_data, aes(x = draft_status, y = value, fill = draft_status)) +
+  geom_boxplot(alpha = 0.75, outlier.alpha = 0.3) + facet_wrap(~ measurement, scales = "free_y") + 
+  labs(x = "Draft status", y = "Value", fill = "Draft status") +
+  theme_minimal()
+```
+
+Figure 1 looks at the distributions of the four different Combine measurements for both drafted and undrafted wide receivers. It provides a visual comparison of the drafted and undrafted groups across all four measurements. From the boxplot, drafted players generally had faster 40-yard dash and three-cone drill times. From the figure, drafted players also generally had higher vertical and broad jump measurements. These patterns are consistent with Table 1 and the statistically significant ANOVA results.
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+
+set.seed(123)
+
+simulation_manova <- simulate_data(n_per_g = 200, drafted_means = c(0.20, 0.20, -0.20, -0.20))
+
+manova_results <- compare_methods(simulation_manova)
+
+simulation_table <- tibble(Test = c("MANOVA", "Outcome 1 ANOVA", "Outcome 2 ANOVA", "Outcome 3 ANOVA", "Outcome 4 ANOVA"), `P-value` = c(format.pval(manova_results$manova_p_value, digits = 3, eps = 0.001), format.pval(manova_results$outcome_1_p, digits = 3, eps = 0.001), format.pval(manova_results$outcome_2_p, digits = 3, eps = 0.001), format.pval(manova_results$outcome_3_p, digits = 3, eps = 0.001), format.pval(manova_results$outcome_4_p, digits = 3, eps = 0.001)))
+
+knitr::kable(simulation_table,
+  caption = "Comparison of MANOVA and Bonferroni-adjusted ANOVAs for simulated data with group differences")
+```
+
+The simulation produced a different comparison between the two methods. The MANOVA p-value for the simulated data was `r format.pval(manova_results$manova_p_value, digits = 3, eps = 0.001)`. The Bonferroni-corrected p-values for the four individual ANOVAs were `r format.pval(manova_results$outcome_1_p, digits = 3, eps = 0.001)`, `r format.pval(manova_results$outcome_2_p, digits = 3, eps = 0.001)`, `r format.pval(manova_results$outcome_3_p, digits = 3, eps = 0.001)`, and `r format.pval(manova_results$outcome_4_p, digits = 3, eps = 0.001)`.
+
+The simulated MANOVA detected a statistically significant difference overall while three of the four individual ANOVAs did not remain statistically significant after a Bonferroni correction. This shows that MANOVA can provide evidence of a joint difference when individual effects are small.
+
+# Discussion
+
+Drafted wide receivers had faster average 40-yard dash and three-cone drill times as well as higher average vertical and broad jump measurements than their undrafted counterparts. The MANOVA indicated a statistically significant difference between the two groups of players across the four measurements jointly. Each univariate ANOVA test was also statistically significant, even after the Bonferroni correction. Therefore, both methods led to the same conclusion for the Combine data.
+
+These results show that MANOVA is not always a more insightful approach than computing separate ANOVAs. The individual group differences were large enough in the dataset used that both methods gave the same conclusion. The MANOVA for the simulation provided additional evidence because it evaluated the outcomes jointly. MANOVA can be useful when the size of the group differences is small across correlated response variables.
+
+Limitations in this study include the fact that missing values in draft round were treated as a player being undrafted. This classification may be incorrect due to incomplete draft information. Also, factors other than Combine performance such as college game performance, injuries or team-specific preferences may influence draft round. 
+
+In the future, I could compare drafted and undrafted players separately for several positions. If the dataset included draft year I would also include that as an additional factor. The simulation could have also examined how MANOVA conclusions change with different correlations between the response variables.
+
+# References
